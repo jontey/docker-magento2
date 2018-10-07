@@ -1,48 +1,38 @@
 version: '3'
+
+networks:
+  default:
+    external: false
+  web_traefik:
+    external: true
+
+volumes:
+  magento_web:
+  magento_composer:
+  magento_db:
+
 services:
   cron:
     image: fballiano/magento2-cron
+    networks:
+      - default
     depends_on:
       - apache
-      - varnish
     links:
       - db
       - cache
       - clusterdata
       - apache
-      - varnish
     volumes:
-      - ./magento2:/var/www/html
-      - ./varnish.secret:/varnish.secret
+      - magento2_web:/var/www/html
       # Enable the next line if you want to add a custom php.ini
       #- ./php.ini:/usr/local/etc/php/conf.d/999-customphp.ini
-
-  ssl:
-    image: fballiano/nginx-ssl-for-magento2
-    depends_on:
-      - varnish
-    links:
-      - varnish
-    ports:
-      - "443:443"
-
-  varnish:
-    image: fballiano/varnish
-    ports:
-      - "80:80"
-      - "6082:6082"
-    depends_on:
-      - apache
-    links:
-      - apache
-    volumes:
-      - ./varnish.vcl:/etc/varnish/default.vcl
-      - ./varnish.secret:/etc/varnish/secret
-    environment:
-      - CACHE_SIZE=256M
 
   apache:
     image: fballiano/magento2-apache-php
+    networks:
+      - default
+      - web_traefik
     depends_on:
       - db
       - cache
@@ -52,17 +42,26 @@ services:
       - cache
       - clusterdata
     volumes:
-      - ./magento2:/var/www/html
-      - ~/.composer/auth.json:/root/.composer/auth.json
+      - magento2_web:/var/www/html
+      - magento_composer:/root/.composer
       # Enable the next line if you want to add a custom php.ini
       #- ./php.ini:/usr/local/etc/php/conf.d/999-customphp.ini
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.port=80"
+        - "traefik.frontend.rule=Host:magento.localhost"
+        - "traefik.entrypoints=https"
+        - "traefik.frontend.passHostHeader=true"
+        - "traefik.backend=apache"
+        - "traefik.docker.network=web_traefik"
 
   db:
     image: mariadb
-    ports:
-      - "3306:3306"
+    networks:
+      - default
     volumes:
-      - dbdata:/var/lib/mysql
+      - magento_db:/var/lib/mysql
     environment:
       - MYSQL_ROOT_PASSWORD=magento2
       - MYSQL_DATABASE=magento2
@@ -71,9 +70,10 @@ services:
 
   cache:
     image: fballiano/redis-volatile
+    networks:
+      - default
 
   clusterdata:
     image: fballiano/redis-volatile
-
-volumes:
-  dbdata:
+    networks:
+      - default
